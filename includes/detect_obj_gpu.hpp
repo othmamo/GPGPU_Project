@@ -11,3 +11,6 @@ void detect_gpu(unsigned char *buffer_ref, unsigned char *buffer_obj, int width,
                              unsigned char *gray_obj_cuda, int rows, int cols,
                              int kernel_size, kernelCudaSize cuda_kernel_size,
                              int pitch);*/
+
+void main_detection_gpu(unsigned char *buffer_ref, unsigned char *buffer_obj, int width,
+                int height, int channels);

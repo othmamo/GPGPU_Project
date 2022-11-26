@@ -150,3 +150,125 @@ void detect_gpu(unsigned char *buffer_ref, unsigned char *buffer_obj, int width,
     // Uncomment to see the results
     // to_save(gray_obj_cuda, height, width, file_save_diff, pitch);
 }
+
+void object_detection(unsigned char* blur_ref,
+                      unsigned char* buffer_obj,
+                      unsigned char* obj,
+                      const int width,
+                      const int height,
+                      const size_t pitch,
+                      double* g_kernel, 
+                      unsigned int kernel_size,
+                      unsigned char* k1, 
+                      unsigned char* k2, 
+                      size_t k1_size,
+                      size_t k2_size,
+                      int* nb_obj, 
+                      int channels,
+                      const dim3 threadsPerBlock,
+                      const dim3 blocksPerGrid)
+{
+    // Apply gray scale
+    to_gray_scale<<<blocksPerGrid, threadsPerBlock>>>(
+        obj, buffer_obj, height, width, channels, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    // Applying bluring
+    gaussian_blur_gpu<<<blocksPerGrid, threadsPerBlock>>>(
+        buffer_obj, height, width, kernel_size, g_kernel, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    // Calculating diff
+    difference<<<blocksPerGrid, threadsPerBlock>>>(blur_ref, buffer_obj,
+                                                   height, width, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    // Perform closing
+    perform_erosion_gpu<<<blocksPerGrid, threadsPerBlock>>>(
+        buffer_obj, height, width, k1_size, k1, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    perform_dilation_gpu<<<blocksPerGrid, threadsPerBlock>>>(
+        buffer_obj, height, width, k1_size, k1, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    // Perform opening
+    perform_dilation_gpu<<<blocksPerGrid, threadsPerBlock>>>(
+        buffer_obj, height, width, k2_size, k2, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    perform_erosion_gpu<<<blocksPerGrid, threadsPerBlock>>>(
+        buffer_obj, height, width, k2_size, k2, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    std::string file_save_opening_obj = "../images/opening_cuda.jpg";
+    to_save(buffer_obj, height, width, file_save_opening_obj, pitch);
+}
+
+void main_detection_gpu(unsigned char *buffer_ref, unsigned char *buffer_obj, int width,
+                int height, int channels)
+{
+    const int rows = height;
+    const int cols = width;
+
+    cudaDeviceProp deviceProp;
+    int gpu_error = get_properties(0, &deviceProp);
+
+    const dim3 threadsPerBlock = dim3(std::sqrt(deviceProp.maxThreadsDim[0]),
+                                      std::sqrt(deviceProp.maxThreadsDim[1]));
+    const dim3 blocksPerGrid =
+        dim3(std::ceil(float(cols) / float(threadsPerBlock.x)),
+             std::ceil(float(rows) / float(threadsPerBlock.y)));
+
+    std::cout << "Threads per block: (" << threadsPerBlock.x << ", "
+              << threadsPerBlock.y << ")\n";
+    std::cout << "Blocks per grid: (" << blocksPerGrid.x << ", "
+              << blocksPerGrid.y << ")\n";
+
+    const size_t size_color = cols * rows * channels * sizeof(unsigned char);
+
+    // Copy content of host buffer to a cuda buffer
+    unsigned char *buffer_ref_cuda =
+        cpy_host_to_device<unsigned char>(buffer_ref, size_color);
+    unsigned char *buffer_obj_cuda =
+        cpy_host_to_device<unsigned char>(buffer_obj, size_color);
+
+    size_t pitch; // we will store the pitch value in this variable
+    unsigned char *gray_ref_cuda = malloc_cuda2D(cols, rows, &pitch);
+    unsigned char *gray_obj_cuda = malloc_cuda2D(cols, rows, &pitch);
+
+    std::cout << "Pitch: " << pitch << '\n';
+
+    // Apply gray scale
+    to_gray_scale<<<blocksPerGrid, threadsPerBlock>>>(
+        buffer_ref_cuda, gray_ref_cuda, rows, cols, channels, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    // Applying bluring
+    unsigned int kernel_size = 5;
+    double *kernel_gpu = create_gaussian_kernel_gpu(kernel_size);
+
+    gaussian_blur_gpu<<<blocksPerGrid, threadsPerBlock>>>(
+        gray_ref_cuda, rows, cols, kernel_size, kernel_gpu, pitch);
+    cudaCheckError();
+    cudaDeviceSynchronize();
+
+    size_t k1_size = 5;
+    size_t k2_size = 11;
+    unsigned char *morpho_k1 = circular_kernel_gpu(k1_size);
+    unsigned char *morpho_k2 = circular_kernel_gpu(k2_size);
+
+    int nb_obj;
+    object_detection(gray_ref_cuda, gray_obj_cuda, buffer_obj_cuda, 
+                     cols, rows, pitch, kernel_gpu, kernel_size,
+                     morpho_k1, morpho_k2, k1_size, k2_size, &nb_obj, 
+                     channels, threadsPerBlock, blocksPerGrid);
+}

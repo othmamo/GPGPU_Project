@@ -21,7 +21,7 @@ int main(int argc, char **argv)
     int width, height, channels;
     unsigned char **images = get_images(argc, argv, &width, &height, &channels);
 
-    detect_gpu(images[0], images[1], width, height, channels);
+    main_detection_gpu(images[0], images[1], width, height, channels);
 
     free_images(images, argc - 1);
 }
