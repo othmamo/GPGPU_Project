@@ -29,29 +29,31 @@ unsigned char *circular_kernel_gpu(int kernel_size)
 __global__ void perform_erosion_col_gpu(unsigned char *image, int rows,
                                         int cols, size_t kernel_size, int pitch)
 {
-    extern __shared__ int shared[];
+    extern __shared__ unsigned char shared[];
 
-    int x = blockDim.x * blockIdx.x + threadIdx.x;
-    int y = blockDim.y * blockIdx.y + threadIdx.y;
+    int pos = blockDim.x * blockIdx.x + threadIdx.x;
 
+    if (pos >= cols * rows)
+        return;
     int start_k = kernel_size / 2;
 
-    if (x >= cols || y >= rows)
-        return;
+    int y = pos % rows;
+    int x = pos / rows;
 
-    unsigned char sy = threadIdx.y;
+    int sx = threadIdx.x;
 
-    shared[sy + start_k] = image[y * pitch + x];
+    shared[sx + start_k] = image[y * pitch + x];
 
     // Add pading horizontal
-    if (threadIdx.y == 0)
+    if (sx == 0)
     {
-        for (size_t i = 0; i < start_k; i++)
+        for (int i = 0; i < start_k; i++)
         {
-            if ((y - start_k + i) >= 0 && (y - start_k + i) < rows)
+            if ((y - start_k + i) >= 0)
                 shared[i] = image[(y - start_k + i) * pitch + x];
-            if ((y + i) >= 0 && (y + i) < rows)
-                shared[blockDim.y - 1 + i] = image[(y + i) * pitch + x];
+            if ((y + blockDim.x + i) < rows)
+                shared[blockDim.x + i] =
+                    image[(y + blockDim.x + i) * pitch + x];
         }
     }
 
@@ -61,12 +63,11 @@ __global__ void perform_erosion_col_gpu(unsigned char *image, int rows,
 
     for (int i = -start_k; i < start_k + 1; i++)
     {
-        int val = shared[sy + i];
+        unsigned char val = shared[sx + start_k + i];
         if (val != 0 && (res == 0 || val < res))
             res = val;
     }
 
-    __syncthreads();
     image[y * pitch + x] = res;
 }
 
@@ -74,97 +75,7 @@ __global__ void perform_erosion_line_gpu(unsigned char *image, int rows,
                                          int cols, size_t kernel_size,
                                          int pitch)
 {
-    extern __shared__ int shared[];
-
-    int x = blockDim.x * blockIdx.x + threadIdx.x;
-    int y = blockDim.y * blockIdx.y + threadIdx.y;
-
-    int start_k = kernel_size / 2;
-
-    if (x >= cols || y >= rows)
-        return;
-
-    unsigned char sx = threadIdx.x;
-
-    shared[sx + start_k] = image[y * pitch + x];
-
-    // Add pading horizontal
-    if (threadIdx.x == 0)
-    {
-        for (size_t i = 0; i < start_k; i++)
-        {
-            if ((x - start_k + i) >= 0 && (x - start_k + i) < cols)
-                shared[i] = image[y * pitch + x - start_k + i];
-            if ((x + i) >= 0 && (x + i) < cols)
-                shared[blockDim.x - 1 + i] = image[y * pitch + x + i];
-        }
-    }
-
-    __syncthreads();
-
-    unsigned char res = 0;
-
-    for (int i = -start_k; i < start_k + 1; i++)
-    {
-        int val = shared[sx + i];
-        if (val != 0 && (res == 0 || val < res))
-            res = val;
-    }
-
-    __syncthreads();
-    image[y * pitch + x] = res;
-}
-
-__global__ void perform_dilation_line_gpu(unsigned char *image, int rows,
-                                          int cols, size_t kernel_size,
-                                          int pitch)
-{
-    extern __shared__ int shared[];
-
-    int x = blockDim.x * blockIdx.x + threadIdx.x;
-    int y = blockDim.y * blockIdx.y + threadIdx.y;
-
-    int start_k = kernel_size / 2;
-
-    if (x >= cols || y >= rows)
-        return;
-
-    unsigned char sx = threadIdx.x;
-
-    shared[sx + start_k] = image[y * pitch + x];
-
-    // Add pading horizontal
-    if (threadIdx.x == 0)
-    {
-        for (size_t i = 0; i < start_k; i++)
-        {
-            if ((x - start_k + i) >= 0 && (x - start_k + i) < cols)
-                shared[i] = image[y * pitch + x - start_k + i];
-            if ((x + i) >= 0 && (x + i) < cols)
-                shared[blockDim.x - 1 + i] = image[y * pitch + x + i];
-        }
-    }
-
-    __syncthreads();
-
-    unsigned char res = 0;
-
-    for (int i = -start_k; i < start_k + 1; i++)
-    {
-        int val = shared[sx + i];
-        if (val > res)
-            res = val;
-    }
-
-    __syncthreads();
-    image[y * pitch + x] = res;
-}
-
-__global__ void perform_dilation_col_gpu(unsigned char *image, int rows,
-                                         int cols, size_t kernel_size,
-                                         int pitch)
-{
-    extern __shared__ int shared[];
+    extern __shared__ unsigned char shared[];
 
     int pos = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -175,19 +86,20 @@ __global__ void perform_dilation_col_gpu(unsigned char *image, int rows,
     int y = pos / cols;
     int x = pos % cols;
 
-    unsigned char sx = threadIdx.x;
+    int sx = threadIdx.x;
 
     shared[sx + start_k] = image[y * pitch + x];
 
     // Add pading horizontal
     if (sx == 0)
     {
-        for (size_t i = 0; i < start_k; i++)
+        for (int i = 0; i < start_k; i++)
         {
-            if ((x - start_k + i) >= 0 && (x - start_k + i) < rows)
-                shared[i] = image[(y - start_k + i) * pitch + x];
-            if ((y + i) >= 0 && (y + i) < rows)
-                shared[blockDim.y - 1 + i] = image[(y + i) * pitch + x];
+            if ((x - start_k + i) >= 0)
+                shared[i] = image[y * pitch + (x - start_k + i)];
+            if ((x + blockDim.x + i) < cols)
+                shared[blockDim.x + i] =
+                    image[y * pitch + (x + blockDim.x + i)];
         }
     }
 
@@ -197,12 +109,103 @@ __global__ void perform_dilation_col_gpu(unsigned char *image, int rows,
 
     for (int i = -start_k; i < start_k + 1; i++)
     {
-        int val = shared[sy + i];
+        unsigned char val = shared[sx + start_k + i];
+        if (val != 0 && (res == 0 || val < res))
+            res = val;
+    }
+
+    image[y * pitch + x] = res;
+}
+
+__global__ void perform_dilation_line_gpu(unsigned char *image, int rows,
+                                          int cols, size_t kernel_size,
+                                          int pitch)
+{
+    extern __shared__ unsigned char shared[];
+
+    int pos = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (pos >= cols * rows)
+        return;
+    int start_k = kernel_size / 2;
+
+    int y = pos / cols;
+    int x = pos % cols;
+
+    int sx = threadIdx.x;
+
+    shared[sx + start_k] = image[y * pitch + x];
+
+    // Add pading horizontal
+    if (sx == 0)
+    {
+        for (int i = 0; i < start_k; i++)
+        {
+            if ((x - start_k + i) >= 0)
+                shared[i] = image[y * pitch + (x - start_k + i)];
+            if ((x + blockDim.x + i) < cols)
+                shared[blockDim.x + i] =
+                    image[y * pitch + (x + blockDim.x + i)];
+        }
+    }
+
+    __syncthreads();
+
+    unsigned char res = 0;
+
+    for (int i = -start_k; i < start_k + 1; i++)
+    {
+        unsigned char val = shared[sx + start_k + i];
         if (val > res)
             res = val;
     }
 
+    image[y * pitch + x] = res;
+}
+
+__global__ void perform_dilation_col_gpu(unsigned char *image, int rows,
+                                         int cols, size_t kernel_size,
+                                         int pitch)
+{
+    extern __shared__ unsigned char shared[];
+
+    int pos = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (pos >= cols * rows)
+        return;
+    int start_k = kernel_size / 2;
+
+    int y = pos % rows;
+    int x = pos / rows;
+
+    int sx = threadIdx.x;
+
+    shared[sx + start_k] = image[y * pitch + x];
+
+    // Add pading horizontal
+    if (sx == 0)
+    {
+        for (int i = 0; i < start_k; i++)
+        {
+            if ((y - start_k + i) >= 0)
+                shared[i] = image[(y - start_k + i) * pitch + x];
+            if ((y + blockDim.x + i) < rows)
+                shared[blockDim.x + i] =
+                    image[(y + blockDim.x + i) * pitch + x];
+        }
+    }
+
     __syncthreads();
+
+    unsigned char res = 0;
+
+    for (int i = -start_k; i < start_k + 1; i++)
+    {
+        unsigned char val = shared[sx + start_k + i];
+        if (val > res)
+            res = val;
+    }
+
     image[y * pitch + x] = res;
 }
 
@@ -210,11 +213,14 @@ void erosion_gpu(unsigned char *obj, size_t rows, size_t cols, size_t k_size,
                  unsigned char *kernel, size_t pitch, int thx, int thy)
 {
     const int threads = 1024;
-    const int size_shared = threads + k_size;
-    const int blocks = std::ceil(float(cols * rows) / float(threads.x));
+    const int size_shared = threads + k_size - 1;
+    const int blocks = std::ceil(float(cols * rows) / float(threads));
 
-    perform_erosion_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
-                                                          k_size, pitch);
+    perform_erosion_line_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
+                                                               k_size, pitch);
+    cudaDeviceSynchronize();
+    perform_erosion_col_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
+                                                              k_size, pitch);
     cudaCheckError();
     cudaDeviceSynchronize();
 }
@@ -223,11 +229,14 @@ void dilation_gpu(unsigned char *obj, size_t rows, size_t cols, size_t k_size,
                   unsigned char *kernel, size_t pitch, int thx, int thy)
 {
     const int threads = 1024;
-    const int size_shared = threads + k_size;
-    const int blocks = std::ceil(float(cols * rows) / float(threads.x));
+    const int size_shared = threads + k_size - 1;
+    const int blocks = std::ceil(float(cols * rows) / float(threads));
 
-    perform_dilation_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
-                                                           k_size, pitch);
+    perform_dilation_line_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
+                                                                k_size, pitch);
+    cudaDeviceSynchronize();
+    perform_dilation_col_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
+                                                               k_size, pitch);
     cudaCheckError();
     cudaDeviceSynchronize();
 }
