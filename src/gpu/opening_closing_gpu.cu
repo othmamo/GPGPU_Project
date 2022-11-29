@@ -212,9 +212,14 @@ __global__ void perform_dilation_col_gpu(unsigned char *image, int rows,
 void erosion_gpu(unsigned char *obj, size_t rows, size_t cols, size_t k_size,
                  unsigned char *kernel, size_t pitch, int thx, int thy)
 {
-    const int threads = 1024;
+    thx = 1024;
+
+    const int nb_block_x = std::ceil(float(cols) / float(thx));
+    const int blocks = nb_block_x * rows;
+
+    const int threads = float(cols) / nb_block_x;
+
     const int size_shared = threads + k_size - 1;
-    const int blocks = std::ceil(float(cols * rows) / float(threads));
 
     perform_erosion_line_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
                                                                k_size, pitch);
@@ -228,9 +233,14 @@ void erosion_gpu(unsigned char *obj, size_t rows, size_t cols, size_t k_size,
 void dilation_gpu(unsigned char *obj, size_t rows, size_t cols, size_t k_size,
                   unsigned char *kernel, size_t pitch, int thx, int thy)
 {
-    const int threads = 1024;
+    thx = 1024;
+
+    const int nb_block_x = std::ceil(float(cols) / float(thx));
+    const int blocks = nb_block_x * rows;
+
+    const int threads = float(cols) / nb_block_x;
+
     const int size_shared = threads + k_size - 1;
-    const int blocks = std::ceil(float(cols * rows) / float(threads));
 
     perform_dilation_line_gpu<<<blocks, threads, size_shared>>>(obj, rows, cols,
                                                                 k_size, pitch);

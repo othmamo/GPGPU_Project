@@ -64,13 +64,15 @@ int main(int argc, char **argv)
     int width, height, channels;
     unsigned char **images = get_images(argc, argv, &width, &height, &channels);
 
-    /*int *nb_objs = (int *) std::malloc((argc - 2) * sizeof(int));
-    struct Bbox*** all_boxes = main_detection_gpu(images, argc - 1, width,
-    height, channels, nb_objs); display_result(all_boxes, nb_objs, argc, argv);
+    int *nb_objs = (int *)std::malloc((argc - 2) * sizeof(int));
+    struct Bbox ***all_boxes =
+        main_detection_gpu(images, argc - 1, width, height, channels, nb_objs);
+    display_result(all_boxes, nb_objs, argc, argv);
 
     free_boxes(all_boxes, argc - 2, nb_objs);
-    std::free(nb_objs);*/
-    detect_gpu(images[0], images[1], width, height, channels);
+    std::free(nb_objs);
+
+    //    detect_gpu(images[0], images[1], width, height, channels);
 
     free_images(images, argc - 1);
 }
